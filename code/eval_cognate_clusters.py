@@ -86,14 +86,14 @@ if __name__ == "__main__":
         c.append(''.join(codings.get(id, ())))
 
     v = 0
-    f = 0
+    r = 0
     a = 0
     b = 0
     for concept, (gold_c, c) in concept_codes.items():
         v += metrics.v_measure_score(gold_c, c)
-        f += metrics.fowlkes_mallows_score(gold_c, c)
+        r += metrics.adjusted_rand_score(gold_c, c)
         a += metrics.adjusted_mutual_info_score(gold_c, c)
         b += bcubed.fscore(bcubed.simple_precision(c, gold_c),
                            bcubed.simple_recall(c, gold_c))
     norm = len(concept_codes)
-    print(args.codings, b/norm, v/norm, f/norm, a/norm)
+    print(args.codings, b/norm, v/norm, r/norm, a/norm)
