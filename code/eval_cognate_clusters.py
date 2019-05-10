@@ -28,9 +28,9 @@ if __name__ == "__main__":
     parser.add_argument("codings",
                         type=Path,
                         help="A CLDF dataset with cognate codes")
-#     parser.add_argument("--gold-lingpy", action="store_true",
-#                         default=False,
-#                         help="The ground-truth data is in LingPy's format, not CLDF.")
+    parser.add_argument("--gold-lingpy", action="store_true",
+                        default=False,
+                        help="The ground-truth data is in LingPy's format, not CLDF.")
 #     parser.add_argument("--lingpy", action="store_true",
 #                         default=False,
 #                         help="The data is in LingPy's format, not CLDF.")
@@ -49,7 +49,7 @@ if __name__ == "__main__":
              if e in dataset.header}
             for row in dataset}
         codings = {
-            str(form): str(row["partial_ids"])
+            str(form): str(row["cogid"])
             for form, row in forms.items()}
 
         def iterate_concept_and_id():
@@ -71,19 +71,31 @@ if __name__ == "__main__":
                 yield row[c_concept], str(row[c_id])
 
 
-    gold_dataset = get_dataset(args.gold)
-    gold_cognatesets = cognate_sets(gold_dataset)
-    gold_codings = {
-        form: code
-        for code, forms in gold_cognatesets.items()
-        for form in forms}
+    if args.gold.suffix == ".tsv":
+        import lingpy
+        gold_dataset = lingpy.LexStat(str(args.gold))
+        gold_forms = {row:
+            {e: gold_dataset[row][gold_dataset.header[e]]
+             for e in gold_dataset.entries
+             if e in gold_dataset.header}
+            for row in gold_dataset}
+        gold_codings = {
+            str(form): str(row["cogid"])
+            for form, row in gold_forms.items()}
+    else:
+        gold_dataset = get_dataset(args.gold)
+        gold_cognatesets = cognate_sets(gold_dataset, code_column="COGID")
+        gold_codings = {
+            str(form): code
+            for code, forms in gold_cognatesets.items()
+            for form in forms}
 
 
     concept_codes = {}
     for concept, id in iterate_concept_and_id():
         gold_c, c = concept_codes.setdefault(concept, ([], []))
-        gold_c.append(''.join(gold_codings.get(id, ())))
-        c.append(''.join(codings.get(id, ())))
+        gold_c.append(''.join([str(s) for s in gold_codings.get(id, ())]))
+        c.append(''.join([str(s) for s in codings.get(id, ())]))
 
     v = 0
     r = 0
