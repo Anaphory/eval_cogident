@@ -2,6 +2,7 @@ import sys
 import json
 from pathlib import Path
 import itertools
+import collections
 
 import lingpy
 import segments
@@ -12,20 +13,22 @@ model=lingpy.data.model.Model("asjp")
 def convert_to_asjp(form):
     tokens = tokenizer(form, ipa=True).split()
     return lingpy.tokens2class(tokens, model, cldf=False)
+scorer = collections.defaultdict(lambda: -1)
+scorer.update({(c, c): 0 for c in set(model.converter.values())})
 def relative_edit_distance(x, y):
-    a, b, s = lingpy.align.pairwise.pw_align(x, y)
-    return s / len(a)
+    a, b, s = lingpy.align.pairwise.pw_align(x, y, scale=1, scorer=scorer)
+    return -s / len(a)
 
 try:
-    stats = json.load(Path("dataset_properties.json").open())
-except FileNotFoundError:
+    stats = json.load((Path(__file__).parent / "dataset_properties.json").open())
+except (FileNotFoundError, json.decoder.JSONDecodeError):
     stats = {}
 
 if __name__ == "__main__":
-    for dataset in sys.args[1:]:
-        if dataset in stats:
+    for argument in sys.argv[1:]:
+        if argument in stats:
             continue
-        datafile = Path(dataset)
+        datafile = Path(argument)
         print(datafile)
         basename = datafile.stem
 
@@ -62,7 +65,7 @@ if __name__ == "__main__":
                     len(relative_concept_edit_distances))
 
         print(basename)
-        stats[dataset] = {
+        stats[argument] = {
             "min_intersection": min(intersections),
             "average_intersection": 2 * sum(intersections) / len(intersections),
             "average_asjp_edit_distance": sum(relative_edit_distances) / len(relative_edit_distances),
@@ -70,4 +73,4 @@ if __name__ == "__main__":
         }
 
 
-    json.dump(stats, Path("dataset_properties.json").open("w"), indent=2)
+    json.dump(stats, Path(Path(__file__).parent / "dataset_properties.json").open("w"), indent=2)
