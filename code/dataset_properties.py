@@ -27,6 +27,9 @@ try:
 except (FileNotFoundError, json.decoder.JSONDecodeError):
     stats = {}
 
+features = ["min_intersection", "average_intersection", "average_asjp_edit_distance", "mean_word_length", "mean_synonyms", "quantile_for_two_segments", "quantile_for_three_segments", "quantile_for_five_segments", "quantile_for_nine_segments", "n_lects", "mean_segments", "mean_asjp_segments", "mean_asjp_segments_product"]
+features.sort()
+
 def mean(x):
     return sum(x) / len(x)
 

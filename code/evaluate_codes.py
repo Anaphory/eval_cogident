@@ -22,12 +22,36 @@ from sklearn.tree import DecisionTreeRegressor, DecisionTreeClassifier
 from mlinsights.mlmodel.piecewise_estimator import PiecewiseRegressor
 from mlinsights.mlmodel.piecewise_tree_regression import PiecewiseTreeRegressor
 
-from dataset_properties import stats
+from dataset_properties import stats, features
 
 stats = {
     Path(dataset).stem: data
     for dataset, data in stats.items()
 }
+
+try:
+    features.remove('n_lects')
+except ValueError:
+    pass
+# Remove a few features which are barely relevant for mean squared error and error quantiles
+try:
+    features.remove('quantile_for_three_segments')
+except ValueError:
+    pass
+try:
+    features.remove('average_intersection')
+except ValueError:
+    pass
+try:
+    features.remove('quantile_for_nine_segments')
+except ValueError:
+    pass
+try:
+    features.remove('mean_word_length')
+except ValueError:
+    pass
+
+
 
 rows = []
 with open("calculated_scores.txt") as data:
@@ -44,27 +68,14 @@ with open("calculated_scores.txt") as data:
             assert method == "pmi"
             local_weight, gop, align = None, None, None
             initial_threshold, batch_size, alpha = parameters.split("-")
-        rows.append((run, dataset,
-            stats[dataset]["min_intersection"],
-            stats[dataset]["average_intersection"],
-            stats[dataset]["average_asjp_edit_distance"],
-            stats[dataset]["mean_word_length"],
-            stats[dataset]["mean_synonyms"],
-            stats[dataset]["quantile_for_two_segments"],
-            # In LexiRumah, a morpheme has 5.25 segments in the mean, and 90% of all marked morphemes have 9 segments or fewer.
-            stats[dataset]["quantile_for_five_segments"],
-            stats[dataset]["quantile_for_nine_segments"],
-            # stats[dataset]["n_lects"],
-            stats[dataset]["mean_segments"],
-            stats[dataset]["mean_asjp_segments"],
-            stats[dataset]["mean_asjp_segments_product"],
-                     method, soundclass, clustering_algo,
-                     int(clustering_threshold)/100., int(initial_threshold)/100.,
-                     int(batch_size) if batch_size else None, int(alpha)/100 if
-                     alpha else None, float(local_weight) if local_weight else
-                     None, float(gop) if gop else None, align,
-                     float(bcubedfscore), float(vmeasure), float(adjustedrand),
-                     float(adjustedmutualinformation)))
+        rows.append((run, dataset) + tuple(stats[dataset][c] for c in features) + (
+                    method, soundclass, clustering_algo,
+                    int(clustering_threshold)/100., int(initial_threshold)/100.,
+                    int(batch_size) if batch_size else None, int(alpha)/100 if
+                    alpha else None, float(local_weight) if local_weight else
+                    None, float(gop) if gop else None, align,
+                    float(bcubedfscore), float(vmeasure), float(adjustedrand),
+                    float(adjustedmutualinformation)))
 
 def onehot(df, column, break_at=20):
     x = sorted(set(df[column]) - {None})
@@ -80,11 +91,9 @@ def onehot(df, column, break_at=20):
 
 measures = ["B3", "V", "aR", "AMI"]
 df = pandas.DataFrame(rows, columns=[
-    "Run", "Dataset",
-    "min_intersection", "average_intersection", "average_asjp_edit_distance", "mean_word_length", "mean_synonyms", "quantile_for_two_segments", "quantile_for_five_segments", "quantile_for_nine_segments",
-    #"n_lects",
-    "mean_segments", "mean_asjp_segments", "mean_asjp_segments_product",
+    "Run", "Dataset"] + features + [
     "Method", "Soundclass", "Clustering", "CThreshold", "IThreshold", "Batchsize", "Alpha", "LWeight", "GOP", "Alignment"] + measures)
+
 df.set_index("Run", inplace=True)
 
 for measure in measures:
@@ -140,26 +149,6 @@ c = []
 for column in ["Soundclass", "Clustering"]:
     c.extend(onehot(df, column))
 
-class GraphvizPiecewiseExporter(_DOTTreeExporter):
-    def __init__(self, *args, **kwargs):
-        self.trafo = lambda x: x
-        super().__init__(*args, **kwargs)
-
-    def export(self, tree):
-        self.estimators_ = {i: tree.estimators_[k]
-                            for k, i in enumerate(tree.leaves_)}
-        super().export(tree)
-
-    def value_text(self, tree, node_id):
-        text = super().value_text(tree, node_id)
-        try:
-            text += "\n" + str(dict(zip(
-                self.feature_names,
-                self.estimators_[node_id].coef_))).replace(", ", ",\n")
-        except KeyError:
-            pass
-        return text
-
 class TransformedExporter(_DOTTreeExporter):
     def __init__(self, transform, *args, **kwargs):
         self.trafo = transform
@@ -199,6 +188,23 @@ class TransformedExporter(_DOTTreeExporter):
         return value_text
 
 
+class GraphvizPiecewiseExporter(TransformedExporter):
+    def export(self, tree):
+        self.estimators_ = {i: tree.estimators_[k]
+                            for k, i in enumerate(tree.leaves_)}
+        super().export(tree)
+
+    def value_text(self, tree, node_id):
+        text = super().value_text(tree, node_id)
+        try:
+            text += "\n" + str(dict(zip(
+                self.feature_names,
+                self.estimators_[node_id].coef_))).replace(", ", ",\n")
+        except KeyError:
+            pass
+        return text
+
+
 more = open("more.sh", "w")
 
 try:
@@ -208,11 +214,9 @@ except (NameError, AttributeError):
 best_model = {}
 
 def transform(y):
-    return y
-    return np.exp(y)
+    return np.exp(y - 1)
 def untransform(y_raw):
-    return y_raw
-    return np.log(y_raw)
+    return np.log(y_raw) + 1
 def squish(d):
     return d
 
@@ -235,23 +239,19 @@ for method, parameters in [
                                                 presort=False,
                                                 random_state=None,
                                                 splitter='best'),
-                   estimator=LinearRegression(copy_X=True, fit_intercept=True,
-                                              n_jobs=None, normalize=False),
-                   n_jobs=None, verbose=True)
+                estimator=LinearRegression(copy_X=True, fit_intercept=True,
+                                            n_jobs=None, normalize=False),
+                n_jobs=None, verbose=True)
     else:
         model = DecisionTreeRegressor(splitter="best", max_leaf_nodes=40, criterion="friedman_mse")
     # model = LinearRegression()
-    dataset_features = [f for f in [
-        "min_intersection", "average_intersection", "average_asjp_edit_distance", "mean_word_length", "mean_synonyms", "quantile_for_two_segments", "quantile_for_three_segments", "quantile_for_five_segments", "quantile_for_nine_segments", "n_lects", "mean_segments", "mean_asjp_segments", "mean_asjp_segments_product"]
-    if f in data.columns]
-    features = dataset_features + ["IThreshold", "CThreshold"] + c + parameters
-    x = data[features]
+    dataset_features = [f for f in features if f in data.columns]
+    input_features = dataset_features + ["IThreshold", "CThreshold"] + c + parameters
+    x = data[input_features]
     y = data[measures[0]]
 
     d = x.copy()
     X = squish(d)
-    # poly = PolynomialFeatures(interaction_only=False, include_bias=False)
-    # X = poly.fit_transform(X)
 
     pred = model.fit(np.asarray(X), transform(y))
     print()
@@ -274,15 +274,15 @@ for method, parameters in [
     else:
         Exporter = TransformedExporter
     exporter = Exporter(
-        feature_names=features,
+        feature_names=input_features,
         out_file=StringIO(),
         filled=True,
-        **({} if linearmodeltree else dict(transform=untransform)))
+        transform=untransform)
     exporter.export(pred)
     dot_data = exporter.out_file.getvalue()[:-1]
     dot_data += """
     x [label="95% intervals of the parameters:\n{:s}", fillcolor="#ffffff"] ; }}
-    """.format("\n".join("{:s}: {:f}–{:f}".format(name, min, max) for name, min, max in zip(features, x.min(), x.max())))
+    """.format("\n".join("{:s}: {:f}–{:f}".format(name, min, max) for name, min, max in zip(input_features, x.min(), x.max())))
     graph = graphviz.Source(dot_data)
     graph.render(method)
 
@@ -370,7 +370,7 @@ for method, parameters in [
                     python eval_cognate_clusters.py {gold:} {run:} >> calculated_scores.txt
 
                                 """.format(**globals()),
-                  file=more)
+                file=more)
         else:
             ratio = m["LWeight"]
             # The weight ratio between language-specific and language-independent sound changes
@@ -400,6 +400,6 @@ for method, parameters in [
                     python eval_cognate_clusters.py {gold:} {run:}.tsv >> calculated_scores.txt
 
                                     """.format(**globals()),
-                  file=more)
+                file=more)
 
 more.close()
